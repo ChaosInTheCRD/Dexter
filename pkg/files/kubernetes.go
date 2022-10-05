@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"strings"
 
 	apex "github.com/apex/log"
 	"github.com/chaosinthecrd/dexter/pkg/image"
+	"github.com/google/go-containerregistry/pkg/name"
 	"golang.org/x/net/context"
 
-        goyaml "github.com/go-yaml/yaml"
+	goyaml "github.com/go-yaml/yaml"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -66,33 +68,32 @@ func (_ kubernetes) Find(ctx context.Context, path string) (Found, error) {
       switch gKV.Kind {
          case "Pod":
             for _, c := range obj.(*corev1.Pod).Spec.Containers {
-               references = append(references, c.Image) 
+               references = addRef(references, c.Image)
             }
          case "Deployment":
             for _, c := range obj.(*appsv1.Deployment).Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
-
+               references = addRef(references, c.Image)
             }
          case "ReplicaSet":
             for _, c := range obj.(*appsv1.ReplicaSet).Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
+               references = addRef(references, c.Image)
 
             }
          case "StatefulSet":
             for _, c := range obj.(*appsv1.StatefulSet).Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
+               references = addRef(references, c.Image)
             }
          case "DaemonSet":
             for _, c := range obj.(*appsv1.DaemonSet).Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
+               references = addRef(references, c.Image)
             }
          case "Job":
             for _, c := range obj.(*batchv1.Job).Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
+               references = addRef(references, c.Image)
             }
          case "CronJob":
             for _, c := range obj.(*batchv1.CronJob).Spec.JobTemplate.Spec.Template.Spec.Containers {
-               references = append(references, c.Image)
+               references = addRef(references, c.Image)
             }
          default:
             logs.Debugf("Manifest of kind %s does not contain images", gKV.Kind)
@@ -101,6 +102,17 @@ func (_ kubernetes) Find(ctx context.Context, path string) (Found, error) {
    }
 
    return Found{Location: path, Parser: Parser{ Lead: LeadEmoji, Name: "kubernetes", Parser: &kubernetes{}}, References: references}, nil
+}
+
+func addRef(references []string, image string) []string {
+   if strings.Contains(image, "sha256") == true {
+      return references
+   }
+   if _, err := name.ParseReference(image); err == nil {
+      references = append(references, image)
+   }
+
+   return references
 }
 
 func (_ kubernetes) Modify(ctx context.Context, found Found) ([]string, error) {
@@ -117,12 +129,8 @@ func (_ kubernetes) Modify(ctx context.Context, found Found) ([]string, error) {
       logs.Debugf("Adding digest to reference %s", reference)
       newRef, err := image.AddDigest(reference)
       if err != nil {
-         return nil, err
-      }
-
-      if newRef == reference {
-      logs.Debugf("reference %s already has digest specified. Continuing.", reference)
-      continue
+         logs.Warnf("Failed to add digest to reference %s. Failed with error: %s", reference, err.Error())
+         continue
       }
 
       logs.Debugf("Replacing reference %s with reference %s", reference, newRef)

@@ -6,6 +6,7 @@ import (
 	"os"
         "context"
 	"path/filepath"
+        "fmt"
 
 	apex "github.com/apex/log"
 
@@ -81,15 +82,21 @@ func manipulate(ctx context.Context) error {
                   }
                   file.NewReferences = newRefs
                   if len(newRefs) > 0 {
-                          numChanges = numChanges + len(newRefs)
-                          for i, n := range file.References {
-                                  c := color.New(color.FgGreen)
-                                  logs.Infof(file.Parser.Lead + " " + c.Sprintf("%s => %s\n", n, file.NewReferences[i]))
-                          }
+                       for i, n := range file.References {
+                         if n == file.NewReferences[i]{
+                           continue
+                         }
+
+                         numChanges = numChanges + 1
+
+                         c := color.New(color.FgGreen)
+                         defer fmt.Println("\n" + file.Parser.Lead + " " + c.Sprintf("%s => %s", n, file.NewReferences[i]))
+                       }
                   }
           }
 
-          logs.Infof("Found %d files, of which %d had image references", len(walker.Finds), numChanges)
+          defer fmt.Printf("Found %d files, of which %d had image references that were manipulated:\n", len(walker.Finds), numChanges)
+          defer fmt.Printf("\n")
 
           return nil
 }

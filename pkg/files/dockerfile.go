@@ -3,12 +3,12 @@ package files
 import (
 	"bytes"
 	"os"
-
+	"strings"
 	apex "github.com/apex/log"
 	"github.com/chaosinthecrd/dexter/pkg/image"
+	"github.com/google/go-containerregistry/pkg/name"
+	docker "github.com/moby/buildkit/frontend/dockerfile/parser"
 	"golang.org/x/net/context"
-        docker "github.com/moby/buildkit/frontend/dockerfile/parser"
-
 )
 
 // Dockerfile instruction.
@@ -41,14 +41,45 @@ func (_ dockerfile) Find(ctx context.Context, path string) (Found, error) {
    }
 
    for _, child := range r.AST.Children {
-      if child.Value == "FROM" {
-         references = append(references, child.Next.Value)
-         logs.Debugf("Dockerfile Parser: Found image %s in Dockerfile at path", )
-         return Found{Location: path, Parser: Parser{ Lead: dockerfileEmoji, Name: "dockerfile", Parser: dockerfile{}}, References: references}, nil
-      } 
+      var reference string
+      if strings.ToUpper(child.Value) == "FROM" {
+         reference = child.Next.Value
+         logs.Debugf("Dockerfile Parser: Found potential image reference %s in 'FROM' argument of Dockerfile at path %s", reference, path)
+      } else if strings.Contains("COPY", child.Value) {
+         reference = getCopyRef(child.Flags)
+         logs.Debugf("Dockerfile Parser: Found potential image reference %s in 'FROM' argument of Dockerfile at path %s", reference, path)
+      }
+
+      if reference == "" {
+         continue
+      }
+
+      if _, err := name.ParseReference(reference); err == nil {
+         references = addRef(references, reference)
+      }
    }
 
-   return Found{}, nil
+   return Found{Location: path, Parser: Parser{ Lead: dockerfileEmoji, Name: "dockerfile", Parser: dockerfile{}}, References: references}, nil
+}
+
+
+func getCopyRef(attrs []string) string {
+   for _, n := range attrs {
+      if s := strings.Split(n, "="); len(s) == 2 && s[0] == "--from" && s[1] != " " {
+         return s[1]
+      }
+   }
+
+   return ""
+}
+
+func contains(s []int, e int) bool {
+    for _, a := range s {
+        if a == e {
+            return true
+        }
+    }
+    return false
 }
 
 func (_ dockerfile) Modify(ctx context.Context, found Found) ([]string, error) {
@@ -64,12 +95,8 @@ func (_ dockerfile) Modify(ctx context.Context, found Found) ([]string, error) {
       logs.Debugf("Adding digest to reference %s", reference)
       newRef, err := image.AddDigest(reference)
       if err != nil {
-         return nil, err
-      }
-
-      if newRef == reference {
-      logs.Debugf("reference %s already has digest specified. Continuing.", reference)
-      continue
+         logs.Warnf("WARNING: Failed to add digest to reference %s. Failed with error: %s", reference, err.Error())
+         newRef = reference
       }
 
       logs.Debugf("Replacing reference %s with reference %s", reference, newRef)
