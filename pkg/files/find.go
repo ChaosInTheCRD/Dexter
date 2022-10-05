@@ -3,10 +3,11 @@ package files
 import (
 	"context"
 	"fmt"
-        "strings"
 	"os"
+	"path/filepath"
 	"sync"
 
+	apex "github.com/apex/log"
 	"github.com/chaosinthecrd/dexter/pkg/config"
 )
 
@@ -15,89 +16,87 @@ type Walker struct {
    Finds []Found
    Ignores []config.Ignore
    Parsers []string
+   Context context.Context
 }
 
-// Parser is the interface implemented by image file parsers.
-type Parser interface {
+// parser is the interface implemented by image file parsers.
+type parser interface {
 	Find(context.Context, string) (Found, error)
-        Modify(Found) (int, []string, error)
+        Modify(context.Context, Found) ([]string, error)
 }
 
 // NewParser takes a string and initialises the respective parser for which it represents
-func NewParser(parser string) (Parser, error) {
+func NewParser(parser string) (parser, error) {
    switch parser {
     case "kubernetes":
-       fmt.Println("Found kubernetes parser!")
        k := kubernetes{}
        return k, nil
+    case "dockerfile":
+       d := dockerfile{}
+       return d, nil
     default:
        return nil, fmt.Errorf("Parser %s declared in config file not recognised.", parser)
     }
 }
 
-func FindParsers(parsers []string) ([]Parser, error) {
-   fmt.Printf("Parsers: %s \n", parsers)
-   newParsers := []Parser{}
+func FindParsers(parsers []string) ([]parser, error) {
+   newParsers := []parser{}
    for _, p := range(parsers) {
-      fmt.Printf("P IS: %s \n", p)
-      parser, err := NewParser(p)
+      newParser, err := NewParser(p)
       if err != nil {
-         return []Parser{}, err
+         return []parser{}, err
       }
 
-      fmt.Printf("Just set up parser %s \n", parser)
-
-      newParsers = append(newParsers, parser)
+      newParsers = append(newParsers, newParser)
    }
 
-   fmt.Printf("Initialised Parsers: %s \n", newParsers)
 
    return newParsers, nil
 }
 
 func (w *Walker) FindImageReferences(path string, info os.FileInfo, err error) error {
+
+   logs := apex.FromContext(w.Context)
+
    if err != nil {
       return err
    }
 
    if info.IsDir() {
+
+      if info.Name() == ".git" {
+         logs.Debugf("Skipping directory %s as it is a git directory", path)
+         return filepath.SkipDir
+      }
+
+      logs.Debugf("Skipping %s as it is a directory", path)
       return nil
    }
-   ctx := context.TODO()
-
-   fmt.Printf("Parsers: %s\n", w.Parsers)
 
    parsers, err := FindParsers(w.Parsers)
    if err != nil {
-      return err
+      return fmt.Errorf("Failed to find parsers: %s", err.Error())
    }
-
-   fmt.Printf("Parsers Ready: %s\n", parsers)
 
    for {
     var (
             wg         sync.WaitGroup
             lock       sync.Mutex
-            errs       []string
     )
 
     wg.Add(len(parsers))
 
     // Run all parsers.
     for _, p := range parsers {
-      go func(p Parser) {
+      go func(p parser) {
       defer wg.Done()
-      fmt.Printf("Running the %s parser...\n", p)
-      fmt.Printf("Inspecting File: %s\n", path)
-      res, err := p.Find(ctx, path)
+      res, err := p.Find(w.Context, path)
       if err != nil {
-         fmt.Println(err)
+         logs.Errorf("Is this it %s", err.Error())
       }
       lock.Lock()
       defer lock.Unlock()
-      // if err != nil {
-      //    errs = append(errs, err.Error())
-      // }
+
       if res.References != nil {
       w.Finds = append(w.Finds, res)
       }
@@ -107,16 +106,12 @@ func (w *Walker) FindImageReferences(path string, info os.FileInfo, err error) e
     wg.Wait()
 
     select {
-    case <-ctx.Done():
-            return ctx.Err()
+    case <-w.Context.Done():
+            return w.Context.Err()
     default:
     }
 
-    if len(errs) > 0 {
-            return fmt.Errorf("parser error finding images: %s", strings.Join(errs, "; "))
-    }
-
-	return nil
+    return nil
 
    }
 

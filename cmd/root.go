@@ -28,9 +28,11 @@ func Execute() {
 var OutputMode string
 var ConfigFile string
 var WorkingDirectory string
+var DebugMode bool
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&OutputMode, "output", "o", "pretty", "Output mode. Supported modes: "+strings.Join(output.Modes, ", "))
         rootCmd.PersistentFlags().StringVarP(&WorkingDirectory, "directory", "d", "", "Directory to scan.")
         rootCmd.PersistentFlags().StringVarP(&ConfigFile, "config-file", "c", "dexter.yaml", "Config file path.")
+        rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "Increase the verbosity of logs with debug mode")
 }

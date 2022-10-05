@@ -1,2 +1,3 @@
 parsers:
 - "kubernetes"
+- "dockerfile"

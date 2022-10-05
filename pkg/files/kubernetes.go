@@ -2,14 +2,13 @@ package files
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"io"
 	"os"
 
+	apex "github.com/apex/log"
 	"github.com/chaosinthecrd/dexter/pkg/image"
 	"golang.org/x/net/context"
-	"gopkg.in/yaml.v3"
+
         goyaml "github.com/go-yaml/yaml"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -17,25 +16,31 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
+var LeadEmoji string = "🛞"
+
 type kubernetes struct{}
 
 // Find finds valid Kubernetes yaml files. It does this by trying to parse
 // the provided file in the expected format and tries to find an `image` field.
-func (_ kubernetes) Find(ctx context.Context, location string) (Found, error) {
+func (_ kubernetes) Find(ctx context.Context, path string) (Found, error) {
 
+   logs := apex.FromContext(ctx)
+   logs.Debugf("Running Kubernetes parser against file %s", path)
    references := []string{}
    decode := scheme.Codecs.UniversalDeserializer().Decode
-   file, err := os.ReadFile(location)
+
+   logs.Debugf("Kubernetes Parser: Reading file %s", path)
+   file, err := os.ReadFile(path)
    if err != nil {
       return Found{}, err
    }
 
+
+   logs.Debugf("Kubernetes Parser: Splitting YAML if multiple documents in one file")
    files, err := SplitYAML(file)
    if err != nil {
-      return Found{}, err
+      logs.Debugf("Kubernetes Parser: Failed to decode file into YAML. Continuing: %s", err.Error())
    }
-
-   fmt.Println(location)
 
    // If context has been cancelled, exit scanning.
    select {
@@ -54,10 +59,10 @@ func (_ kubernetes) Find(ctx context.Context, location string) (Found, error) {
 
       obj, gKV, err  := decode(file, nil, nil)
       if err != nil {
-         return Found{}, err
+         logs.Debugf("Kubernetes Parser: Failed to decode file %s. Continuing: %s", path, err.Error())
+         continue
       }
 
-      fmt.Println(gKV.Kind)
       switch gKV.Kind {
          case "Pod":
             for _, c := range obj.(*corev1.Pod).Spec.Containers {
@@ -90,64 +95,48 @@ func (_ kubernetes) Find(ctx context.Context, location string) (Found, error) {
                references = append(references, c.Image)
             }
          default:
-            return Found{}, fmt.Errorf("Kubernetes Parser: Failed to parse file as with kubernetes parser")
+            logs.Debugf("Manifest of kind %s does not contain images", gKV.Kind)
+            continue
       }
    }
 
-   return Found{Location: location, Parser: &kubernetes{}, References: references}, nil
+   return Found{Location: path, Parser: Parser{ Lead: LeadEmoji, Name: "kubernetes", Parser: &kubernetes{}}, References: references}, nil
 }
 
-func (_ kubernetes) Modify(found Found) (int, []string, error) {
-   fmt.Println("What is going")
+func (_ kubernetes) Modify(ctx context.Context, found Found) ([]string, error) {
    newReferences := []string{}
 
+
+   logs := apex.FromContext(ctx)
    file, err := os.ReadFile(found.Location)
    if err != nil {
-           fmt.Println(err)
-           os.Exit(1)
+      return []string{}, err
    }
 
    for _, reference := range found.References {
+      logs.Debugf("Adding digest to reference %s", reference)
       newRef, err := image.AddDigest(reference)
       if err != nil {
-         return 0, nil, err
+         return nil, err
       }
 
+      if newRef == reference {
+      logs.Debugf("reference %s already has digest specified. Continuing.", reference)
+      continue
+      }
+
+      logs.Debugf("Replacing reference %s with reference %s", reference, newRef)
       file = bytes.Replace(file, []byte(reference), []byte(newRef), -1)
       newReferences = append(newReferences, newRef)
    }
 
+
+   logs.Debugf("Writing reference changes to file %s", found.Location)
    if err = os.WriteFile(found.Location, file, 0666); err != nil {
-      return 0, nil, err
+      return nil, err
    }
 
-   return len(found.References), newReferences, nil
-}
-
-func splitYaml(file []byte) ([][]byte, error) {
-
-   yamls := [][]byte{}
-   dec := yaml.NewDecoder(bytes.NewReader(file))
-   for {
-        var node yaml.Node
-        err := dec.Decode(&node)
-        if errors.Is(err, io.EOF) {
-            break
-        }
-        if err != nil {
-           return [][]byte{}, fmt.Errorf("Kubernetes Parser: Failed to decode yaml file %s", err)
-        }
-
-        fmt.Println(node)
-        nodeByte, err := yaml.Marshal(node)
-        if err != nil {
-           return [][]byte{}, fmt.Errorf("Kubernetes Parser: Failed to marshal yaml file node: %s", err)
-        }
-
-        yamls = append(yamls, nodeByte)
-   }
-
-   return yamls, nil
+   return newReferences, nil
 }
 
 func SplitYAML(resources []byte) ([][]byte, error) {

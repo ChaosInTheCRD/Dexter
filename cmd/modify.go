@@ -3,14 +3,16 @@
 package cmd
 
 import (
-	"fmt"
-	"log"
 	"os"
+        "context"
 	"path/filepath"
+
+	apex "github.com/apex/log"
 
 	"github.com/chaosinthecrd/dexter/pkg/config"
 	"github.com/chaosinthecrd/dexter/pkg/files"
 	"github.com/chaosinthecrd/dexter/pkg/output"
+	"github.com/chaosinthecrd/dexter/internal/log"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -19,64 +21,75 @@ var manipulateCmd = &cobra.Command{
 	Use:   "manipulate",
 	Short: "Inspect working directory for files containing image references and manipulate them to be pinned to the digest",
 	RunE: func(cmd *cobra.Command, args []string) error {
-          err := output.ValidateOutputMode(OutputMode)
-          if err != nil {
-                  return err
-          }
+           ctx := log.InitLogContext(DebugMode)
+           if err := manipulate(ctx); err != nil {
+              logs := apex.FromContext(ctx)
+              logs.Error("command 'manipulate' failed. Closing.")
+           }
 
-          workingDirectory, err := os.Getwd()
-          if err != nil {
-             log.Println(err.Error())
-          }
-
-          fmt.Printf("Working Dir: %s \n", workingDirectory)
-          walker := &files.Walker{}
-
-          conf, err := config.InitialiseConfig(ConfigFile)
-          if err != nil {
-             log.Println(err.Error())
-          }
-          walker.Ignores = conf.Ignores
-          walker.Parsers = conf.Parsers
-
-          if err := filepath.Walk(workingDirectory, walker.FindImageReferences); err != nil {
-            log.Println(err.Error()) 
-          }
-
-          numChanges := 0
-
-          if walker.Finds == nil {
-             fmt.Println("Nothing")
-             return nil
-          }
-
-          for _, file := range walker.Finds {
-                  changes, newRefs, err := file.Parser.Modify(file)
-                  if err != nil {
-                     log.Println(err.Error())
-                  }
-                  file.NewReferences = newRefs
-                  if changes > 0 {
-                          numChanges = numChanges + changes
-                          log.Printf("File %s\n", file.Location)
-                          for i, n := range file.References {
-                                  var lead string
-                                  if i == changes-1 {
-                                          lead = "┗"
-                                  } else {
-                                          lead = "┣"
-                                  }
-                                  c := color.New(color.FgGreen)
-                                  c.Println(lead + " " + c.Sprintf("%s => %s\n", n, file.NewReferences[i]))
-                          }
-                  }
-          }
-          fmt.Printf("Found %d files, of which %d had image references\n", len(walker.Finds), numChanges)
-
-          return nil
-	},
+           return nil
+     },
 }
 
 func init() {
 	rootCmd.AddCommand(manipulateCmd)
+}
+
+func manipulate(ctx context.Context) error {
+
+          logs :=  apex.FromContext(ctx)
+
+          err := output.ValidateOutputMode(OutputMode)
+          if err != nil {
+             logs.Errorf("Failed to validate output mode")
+             return err
+          }
+
+          workingDirectory, err := os.Getwd()
+          if err != nil {
+             logs.Infof("Cannot get working directory: %s", err.Error())
+             return err
+          }
+
+          logs = log.AddFields(logs, "manipulate", "bar", "foo")
+
+          logs.Debugf("Pinning image references found in %s using config file at", workingDirectory, ConfigFile)
+
+          walker := &files.Walker{}
+
+          conf, err := config.InitialiseConfig(ConfigFile)
+          if err != nil {
+             logs.Errorf("Failed to initialise dexter config: %s", err.Error())
+             return err
+          }
+
+          walker.Ignores = conf.Ignores
+          walker.Parsers = conf.Parsers
+          walker.Context = ctx
+
+          if err := filepath.Walk(workingDirectory, walker.FindImageReferences); err != nil {
+             logs.Errorf("Failed to find image references: %s", err.Error()) 
+             return err
+          }
+
+          numChanges := 0
+          for _, file := range walker.Finds {
+                  newRefs, err := file.Parser.Parser.Modify(walker.Context, file)
+                  if err != nil {
+                     logs.Errorf("Failed to modify file with parser: %s", err.Error())
+                     return err
+                  }
+                  file.NewReferences = newRefs
+                  if len(newRefs) > 0 {
+                          numChanges = numChanges + len(newRefs)
+                          for i, n := range file.References {
+                                  c := color.New(color.FgGreen)
+                                  logs.Infof(file.Parser.Lead + " " + c.Sprintf("%s => %s\n", n, file.NewReferences[i]))
+                          }
+                  }
+          }
+
+          logs.Infof("Found %d files, of which %d had image references", len(walker.Finds), numChanges)
+
+          return nil
 }

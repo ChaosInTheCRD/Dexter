@@ -2,7 +2,6 @@ package config
 
 import (
         "gopkg.in/yaml.v3"
-        "fmt"
 	"os"
 )
 
@@ -19,7 +18,6 @@ type Ignore struct {
 
 func InitialiseConfig(configFile string) (DexterConfig, error) {
 
-   fmt.Printf("Finding Dexter Config")
    config := DexterConfig{}
    if configFile != "" {
       file, err := os.ReadFile(configFile)
@@ -31,8 +29,6 @@ func InitialiseConfig(configFile string) (DexterConfig, error) {
       if err != nil {
          return DexterConfig{}, err
       }
-
-      fmt.Printf("DexterConfig: %s \n", config)
 
    }
 

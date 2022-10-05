@@ -1,13 +1,20 @@
 package image
 
 import (
-   "fmt"
-   "github.com/sigstore/cosign/pkg/oci/remote"
-   "github.com/google/go-containerregistry/pkg/name"
+	"fmt"
+	"strings"
+
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/sigstore/cosign/pkg/oci/remote"
 )
 
 
 func AddDigest(reference string) (string, error) {
+   // Check if the digest is already present
+   if strings.Contains(reference, "@sha256:") {
+      return reference, nil
+   }
+
    ref, err := name.ParseReference(reference)
    if err != nil {
       return "", err
@@ -18,5 +25,5 @@ func AddDigest(reference string) (string, error) {
       return "", err
    }
 
-   return fmt.Sprintf("%s@sha256:%s", ref, dig), nil
+   return fmt.Sprintf("%s", dig), nil
 }
