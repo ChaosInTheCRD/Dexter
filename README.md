@@ -6,8 +6,6 @@
   <img src="./logo/dexter.png" height="256" width="256" alt="dexter project logo" />
 </p>
 
-⚠️  **WARNING: Dexter is not yet ready for prime time. There is still work to do and it might yet be buggy, so please refrain from trusting it to be 100% reliable. If you think it is awesome and want it in your production CI, hop in and submit some PRs! It is a small tool so it hopefully won't be too long until Dexter is ready for action!** ⚠️
-
 Dexter can be placed into your CI processes to scrape through the repository and find files that contain image references, with the aim of pinning them to the immutable digest.
 
 ## What can Dexter Find?
@@ -66,6 +64,18 @@ parsers:
 
 Of course there are not many parsers yet 👀 but hopefully this will become handy in the near future.
 
-### Ignore (DO NOT USE THIS YET IT IS NOT READY)
+### Ignore
 
-The intention here is that you might want to tell Dexter of specific files, and even specific references within those files that you do not want it to touch. Being the enthusiastic nerd that Dexter is, he'll ensure that he leaves these references alone to the letter.
+If you have specific files or even references that exist within the path you are scanning that you do not want to touch, Dexter will ensure that they are left alone to the letter. Just ensure that you add them to the `ignore` field inside the Dexter configuration file:
+
+```yaml
+ignore:
+   files:
+   - cmd/root.go
+   - test.yaml
+   references:
+   - grafana/grafana:latest
+```
+
+
+Feel free to give it a try!
