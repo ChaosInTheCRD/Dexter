@@ -12,7 +12,7 @@ import (
 
 	"github.com/chaosinthecrd/dexter/pkg/config"
 	"github.com/chaosinthecrd/dexter/pkg/files"
-	"github.com/chaosinthecrd/dexter/pkg/output"
+	// "github.com/chaosinthecrd/dexter/pkg/output"
 	"github.com/chaosinthecrd/dexter/internal/log"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
