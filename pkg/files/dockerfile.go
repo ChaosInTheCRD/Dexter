@@ -43,6 +43,11 @@ func (_ dockerfile) Find(ctx context.Context, path string) (Found, error) {
    for _, child := range r.AST.Children {
       var reference string
       if strings.ToUpper(child.Value) == "FROM" {
+         defer func() {
+            if err := recover(); err != nil {
+               logs.Warnf("panic occurred:", err)
+            }
+         }()
          reference = child.Next.Value
          logs.Debugf("Dockerfile Parser: Found potential image reference %s in 'FROM' argument of Dockerfile at path %s", reference, path)
       } else if strings.Contains("COPY", child.Value) {

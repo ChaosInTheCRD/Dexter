@@ -40,11 +40,13 @@ func manipulate(ctx context.Context) error {
 
           logs :=  apex.FromContext(ctx)
 
-          err := output.ValidateOutputMode(OutputMode)
-          if err != nil {
-             logs.Errorf("Failed to validate output mode")
-             return err
-          }
+          // err := output.ValidateOutputMode(OutputMode)
+          // if err != nil {
+          //    logs.Errorf("Failed to validate output mode")
+          //    return err
+          // }
+
+          var err error
 
           wd := WorkingDirectory
           if wd == "" {
