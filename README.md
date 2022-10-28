@@ -1,7 +1,8 @@
 # Dexter
 
-<center> Don't expect your engineers to know why or how they should declare their image references for better security, leave it to Dexter. </center>
+<center>Don't expect your engineers to know why or how they should declare their image references for better security, leave it to Dexter.</center>
 
+## What does Dexter Do?
 Dexter can be placed into your CI processes to scrape through the repository and find files that contain image references, with the aim of pinning them to the immutable digest.
 
 ## What can Dexter Find?
