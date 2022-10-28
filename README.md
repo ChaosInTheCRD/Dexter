@@ -2,10 +2,6 @@
 
 <center> Don't expect your engineers to know why or how they should declare their image references for better security, leave it to Dexter. </center>
 
-<p align="center">
-  <img src="./logo/dexter.png" height="256" width="256" alt="dexter project logo" />
-</p>
-
 Dexter can be placed into your CI processes to scrape through the repository and find files that contain image references, with the aim of pinning them to the immutable digest.
 
 ## What can Dexter Find?
