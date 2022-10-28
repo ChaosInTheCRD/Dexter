@@ -6,13 +6,13 @@ import (
 )
 
 type DexterConfig struct {
-   Ignores []Ignore `yaml:"ignore"`
+   Ignores Ignores `yaml:"ignore"`
    Parsers []string `yaml:"parsers"`
 }
 
-type Ignore struct {
-   File string
-   Reference string
+type Ignores struct {
+   Files []string `yaml:"files"`
+   References []string `yaml:"references"`
 }
 
 

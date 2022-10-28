@@ -46,15 +46,17 @@ func manipulate(ctx context.Context) error {
              return err
           }
 
-          workingDirectory, err := os.Getwd()
-          if err != nil {
-             logs.Infof("Cannot get working directory: %s", err.Error())
-             return err
+          wd := WorkingDirectory
+          if wd == "" {
+             wd, err = os.Getwd()
+             if err != nil {
+                return err
+             }
           }
 
           logs = log.AddFields(logs, "manipulate", "bar", "foo")
 
-          logs.Debugf("Pinning image references found in %s using config file at", workingDirectory, ConfigFile)
+          logs.Debugf("Pinning image references found in %s using config file at", wd, ConfigFile)
 
           walker := &files.Walker{}
 
@@ -68,7 +70,7 @@ func manipulate(ctx context.Context) error {
           walker.Parsers = conf.Parsers
           walker.Context = ctx
 
-          if err := filepath.Walk(workingDirectory, walker.FindImageReferences); err != nil {
+          if err := filepath.Walk(wd, walker.FindImageReferences); err != nil {
              logs.Errorf("Failed to find image references: %s", err.Error()) 
              return err
           }

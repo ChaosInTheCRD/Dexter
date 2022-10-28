@@ -6,15 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+        "strings"
 
+	"github.com/apex/log"
 	apex "github.com/apex/log"
 	"github.com/chaosinthecrd/dexter/pkg/config"
+	"github.com/chaosinthecrd/dexter/pkg/util"
 )
 
 // walker is the struct that is used to hold information gathered during the walk
 type Walker struct {
    Finds []Found
-   Ignores []config.Ignore
+   Ignores config.Ignores
    Parsers []string
    Context context.Context
 }
@@ -56,6 +59,18 @@ func FindParsers(parsers []string) ([]parser, error) {
 
 func (w *Walker) FindImageReferences(path string, info os.FileInfo, err error) error {
 
+   wd, err := os.Getwd()
+   if err != nil {
+      return fmt.Errorf("Failed to get working directory: %s", err.Error())
+   }
+
+   wd = fmt.Sprintf("%s/", wd)
+
+   if util.Contains(w.Ignores.Files, strings.ReplaceAll(path, wd, "")) {
+      log.Infof("file %s is in ignore list, skipping.", strings.ReplaceAll(path, wd, ""))
+      return nil 
+   }
+
    logs := apex.FromContext(w.Context)
 
    if err != nil {
@@ -92,11 +107,18 @@ func (w *Walker) FindImageReferences(path string, info os.FileInfo, err error) e
       defer wg.Done()
       res, err := p.Find(w.Context, path)
       if err != nil {
-         logs.Errorf("Is this it %s", err.Error())
+         logs.Errorf("Failed to find references at path %s: %s", err.Error())
       }
       lock.Lock()
       defer lock.Unlock()
 
+      for _, n := range w.Ignores.References {
+         var clean bool
+         res.References, clean = util.Clean(res.References, n)
+         if clean == true {
+            log.Infof("reference %s is in ignore list, skipping.", n)
+         }
+      }
       if res.References != nil {
       w.Finds = append(w.Finds, res)
       }

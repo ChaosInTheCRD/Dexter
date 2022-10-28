@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 )
 
-var LeadEmoji string = "🛞"
+var LeadEmoji string = "☸"
 
 type kubernetes struct{}
 
