@@ -25,130 +25,135 @@ type kubernetes struct{}
 // Find finds valid Kubernetes yaml files. It does this by trying to parse
 // the provided file in the expected format and tries to find an `image` field.
 func (_ kubernetes) Find(ctx context.Context, path string) (Found, error) {
+	logs := apex.FromContext(ctx)
+	logs.Debugf("Running Kubernetes parser against file %s", path)
+	references := []string{}
+	decode := scheme.Codecs.UniversalDeserializer().Decode
 
-   logs := apex.FromContext(ctx)
-   logs.Debugf("Running Kubernetes parser against file %s", path)
-   references := []string{}
-   decode := scheme.Codecs.UniversalDeserializer().Decode
+	logs.Debugf("Kubernetes Parser: Reading file %s", path)
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return Found{}, err
+	}
 
-   logs.Debugf("Kubernetes Parser: Reading file %s", path)
-   file, err := os.ReadFile(path)
-   if err != nil {
-      return Found{}, err
-   }
+	logs.Debugf("Kubernetes Parser: Splitting YAML if multiple documents in one file")
+	files, err := SplitYAML(file)
+	if err != nil {
+		logs.Debugf("Kubernetes Parser: Failed to decode file into YAML. Continuing: %s", err.Error())
+	}
 
+	// If context has been cancelled, exit scanning.
+	select {
+	case <-ctx.Done():
+		return Found{}, ctx.Err()
+	default:
+	}
 
-   logs.Debugf("Kubernetes Parser: Splitting YAML if multiple documents in one file")
-   files, err := SplitYAML(file)
-   if err != nil {
-      logs.Debugf("Kubernetes Parser: Failed to decode file into YAML. Continuing: %s", err.Error())
-   }
+	for _, file := range files {
+		// (and again) If context has been cancelled, exit scanning.
+		select {
+		case <-ctx.Done():
+			return Found{}, ctx.Err()
+		default:
+		}
 
-   // If context has been cancelled, exit scanning.
-   select {
-   case <-ctx.Done():
-      return Found{}, ctx.Err()
-   default:
-   }
+		obj, gKV, err := decode(file, nil, nil)
+		if err != nil {
+			logs.Debugf("Kubernetes Parser: Failed to decode file %s. Continuing: %s", path, err.Error())
+			continue
+		}
 
-   for _, file := range(files) {
-      // (and again) If context has been cancelled, exit scanning.
-      select {
-      case <-ctx.Done():
-         return Found{}, ctx.Err()
-      default:
-      }
+		switch gKV.Kind {
+		case "Pod":
+			for _, c := range obj.(*corev1.Pod).Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "Deployment":
+			for _, c := range obj.(*appsv1.Deployment).Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "ReplicaSet":
+			for _, c := range obj.(*appsv1.ReplicaSet).Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "StatefulSet":
+			for _, c := range obj.(*appsv1.StatefulSet).Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "DaemonSet":
+			for _, c := range obj.(*appsv1.DaemonSet).Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "Job":
+			for _, c := range obj.(*batchv1.Job).Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		case "CronJob":
+			for _, c := range obj.(*batchv1.CronJob).Spec.JobTemplate.Spec.Template.Spec.Containers {
+				references = addRef(references, c.Image)
+			}
+		default:
+			logs.Debugf("Manifest of kind %s does not contain images", gKV.Kind)
+			continue
+		}
+	}
 
-      obj, gKV, err  := decode(file, nil, nil)
-      if err != nil {
-         logs.Debugf("Kubernetes Parser: Failed to decode file %s. Continuing: %s", path, err.Error())
-         continue
-      }
-
-      switch gKV.Kind {
-         case "Pod":
-            for _, c := range obj.(*corev1.Pod).Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         case "Deployment":
-            for _, c := range obj.(*appsv1.Deployment).Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         case "ReplicaSet":
-            for _, c := range obj.(*appsv1.ReplicaSet).Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-
-            }
-         case "StatefulSet":
-            for _, c := range obj.(*appsv1.StatefulSet).Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         case "DaemonSet":
-            for _, c := range obj.(*appsv1.DaemonSet).Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         case "Job":
-            for _, c := range obj.(*batchv1.Job).Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         case "CronJob":
-            for _, c := range obj.(*batchv1.CronJob).Spec.JobTemplate.Spec.Template.Spec.Containers {
-               references = addRef(references, c.Image)
-            }
-         default:
-            logs.Debugf("Manifest of kind %s does not contain images", gKV.Kind)
-            continue
-      }
-   }
-
-   return Found{Location: path, Parser: Parser{ Lead: LeadEmoji, Name: "kubernetes", Parser: &kubernetes{}}, References: references}, nil
+	return Found{Location: path, Parser: Parser{Lead: LeadEmoji, Name: "kubernetes", Parser: kubernetes{}}, References: references}, nil
 }
 
 func addRef(references []string, image string) []string {
-   if strings.Contains(image, "sha256") == true {
-      return references
-   }
-   if _, err := name.ParseReference(image); err == nil {
-      references = append(references, image)
-   }
+	if strings.Contains(image, "sha256") {
+		return references
+	}
+	if _, err := name.ParseReference(image); err == nil {
+		references = append(references, image)
+	}
 
-   return references
+	return references
 }
 
-func (_ kubernetes) Modify(ctx context.Context, found Found) ([]string, error) {
-   newReferences := []string{}
+func (_ kubernetes) Manipulate(ctx context.Context, refCache map[string]string, found *Found) (map[string]string, error) {
+	logs := apex.FromContext(ctx)
+	file, err := os.ReadFile(found.Location)
+	if err != nil {
+		return map[string]string{}, err
+	}
 
+	for _, reference := range found.References {
+		logs.Debugf("Checking whether digest already cached")
+		if refCache[reference] != "" {
+			nr := refCache[reference]
+			logs.Debugf("Found digest in cached new references, reference %s to be %s", reference, nr)
+			found.NewReferences = append(found.NewReferences, nr)
+			file = bytes.Replace(file, []byte(reference), []byte(nr), -1)
+			continue
+		}
+		logs.Debugf("Fetching digest to reference %s", reference)
+		newRef, err := image.AddDigest(reference)
+		if err != nil {
+			logs.Warnf("Failed to add digest to reference %s. Failed with error: %s", reference, err.Error())
+			continue
+		}
 
-   logs := apex.FromContext(ctx)
-   file, err := os.ReadFile(found.Location)
-   if err != nil {
-      return []string{}, err
-   }
+		logs.Debugf("Replacing reference %s with reference %s", reference, newRef)
+		file = bytes.Replace(file, []byte(reference), []byte(newRef), -1)
 
-   for _, reference := range found.References {
-      logs.Debugf("Adding digest to reference %s", reference)
-      newRef, err := image.AddDigest(reference)
-      if err != nil {
-         logs.Warnf("Failed to add digest to reference %s. Failed with error: %s", reference, err.Error())
-         continue
-      }
+		logs.Debugf("Adding reference %s to cache against original reference %s", newRef, reference)
+		refCache[reference] = newRef
+		found.NewReferences = append(found.NewReferences, newRef)
+	}
 
-      logs.Debugf("Replacing reference %s with reference %s", reference, newRef)
-      file = bytes.Replace(file, []byte(reference), []byte(newRef), -1)
-      newReferences = append(newReferences, newRef)
-   }
+	if len(found.NewReferences) != 0 {
+		logs.Debugf("Writing reference changes to file %s", found.Location)
+		if err = os.WriteFile(found.Location, file, 0666); err != nil {
+			return nil, err
+		}
+	}
 
-
-   logs.Debugf("Writing reference changes to file %s", found.Location)
-   if err = os.WriteFile(found.Location, file, 0666); err != nil {
-      return nil, err
-   }
-
-   return newReferences, nil
+	return refCache, nil
 }
 
 func SplitYAML(resources []byte) ([][]byte, error) {
-
 	dec := goyaml.NewDecoder(bytes.NewReader(resources))
 
 	var res [][]byte
