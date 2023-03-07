@@ -46,7 +46,7 @@ Now if this image is running in your estate, you will not be susceptible to an i
 To quickly test out the tool on your repository, simply execute the following command from within the Dexter repository:
 
 ```bash
-go run manipulate --directory <your-repository-directory>
+go run . manipulate --directory <your-repository-directory>
 ```
 
 ## Dexter Configuration
