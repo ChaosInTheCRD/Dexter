@@ -3,7 +3,7 @@
 <center>Don't expect your engineers to know why or how they should declare their image references for better security, leave it to Dexter.</center>
 
 <p align="center">
-  <img src="./logo/RickAndMortyGopher.png" height="256" width="350" alt="dexter project logo (imported from https://github.com/ashleymcnamara/gophers)" />
+  <img src="./logo/dexter.png" height="256" width="350" alt="dexter project logo (imported from https://github.com/ashleymcnamara/gophers)" />
 </p>
 
 ## What does Dexter Do?
